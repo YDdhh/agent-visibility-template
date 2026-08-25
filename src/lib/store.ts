@@ -1,11 +1,13 @@
 /**
  * The enriched-resource store, backed by Workers KV.
  *
- * On first request we enrich the sample content (or whatever has been POSTed
- * to /api/resources) with Workers AI and cache the result. Subsequent reads
- * are served straight from KV until the TTL expires or the cache is cleared.
+ * On a cold public read we create a deterministic, immediately available
+ * projection of the sample content (or whatever has been POSTed to
+ * /api/resources) and cache it. Explicit content updates use Workers AI for
+ * enrichment; subsequent reads are served straight from KV until expiry or a
+ * cache clear.
  */
-import { enrichAll, enrichResource } from "../enrichment";
+import { enrichAll, enrichResource, fallbackEnrichment } from "../enrichment";
 import { SAMPLE_RESOURCES } from "./content";
 import type { Env, RawResource, Resource, SiteConfig } from "./types";
 
@@ -49,7 +51,12 @@ async function getRawResources(env: Env): Promise<RawResource[]> {
 }
 
 /**
- * Get the enriched resource store, enriching + caching on a cold cache.
+ * Get the resource store without making public discovery endpoints depend on
+ * a model invocation. A cold GET returns a deterministic, immediately useful
+ * projection and caches it; AI enrichment remains available when an editor
+ * explicitly POSTs or updates a resource. This keeps robots.txt, sitemaps and
+ * the homepage within crawler timeouts even when Workers AI is unavailable or
+ * under load.
  */
 export async function getResources(env: Env): Promise<Resource[]> {
 	const cached = await env.VISIBILITY_CACHE.get(ENRICHED_KEY, "json");
@@ -58,11 +65,11 @@ export async function getResources(env: Env): Promise<Resource[]> {
 	}
 
 	const raws = await getRawResources(env);
-	const enriched = await enrichAll(env.AI, env.AI_MODEL, raws);
-	await env.VISIBILITY_CACHE.put(ENRICHED_KEY, JSON.stringify(enriched), {
-		expirationTtl: cacheTtl(env, enriched),
+	const immediate = raws.map((raw) => fallbackEnrichment(raw, env.AI_MODEL));
+	await env.VISIBILITY_CACHE.put(ENRICHED_KEY, JSON.stringify(immediate), {
+		expirationTtl: ttlSeconds(env),
 	});
-	return enriched;
+	return immediate;
 }
 
 /**
