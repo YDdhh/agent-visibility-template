@@ -13,6 +13,11 @@
  *   renderResourceJsonLd -> JSON-LD            (schema.org per page)
  */
 import type { Resource, SiteConfig } from "../lib/types";
+import {
+	MCP_PATH,
+	MCP_SERVER_NAME,
+	MCP_SERVER_VERSION,
+} from "../lib/mcp";
 
 export interface RenderCtx {
 	site: SiteConfig;
@@ -157,6 +162,8 @@ export function renderIndexJson(ctx: RenderCtx) {
 			apiCatalog: `${site.origin}/.well-known/api-catalog`,
 			agentSkills: `${site.origin}/.well-known/agent-skills/index.json`,
 			ardCatalog: `${site.origin}/.well-known/ai-catalog.json`,
+			mcp: `${site.origin}${MCP_PATH}`,
+			mcpServerCard: `${site.origin}${MCP_PATH}/server-card`,
 		},
 		pages: resources.map((r) => ({
 			slug: r.slug,
@@ -346,10 +353,15 @@ export function renderArdCatalog(ctx: RenderCtx): object {
 	const hostname = new URL(site.origin).hostname;
 	return {
 		specVersion: "1.0",
-		host: { name: hostname, url: site.origin },
+		host: {
+			name: hostname,
+			url: site.origin,
+			identifier: `urn:air:${hostname}:site:agent-visibility`,
+			displayName: site.name,
+		},
 		entries: [
 			{
-				id: `urn:air:${hostname}:content:llms-index`,
+				identifier: `urn:air:${hostname}:content:llms-index`,
 				displayName: "LLM content index",
 				type: "text/markdown",
 				url: `${site.origin}/llms.txt`,
@@ -359,7 +371,7 @@ export function renderArdCatalog(ctx: RenderCtx): object {
 				],
 			},
 			{
-				id: `urn:air:${hostname}:api:content-api`,
+				identifier: `urn:air:${hostname}:api:content-api`,
 				displayName: "Public content API",
 				type: "application/vnd.oai.openapi+json",
 				url: `${site.origin}/.well-known/openapi.json`,
@@ -367,6 +379,41 @@ export function renderArdCatalog(ctx: RenderCtx): object {
 					"List the site's indexed resources.",
 					"Retrieve structured content metadata.",
 				],
+			},
+			{
+				identifier: `urn:air:${hostname}:mcp:agent-visibility`,
+				displayName: "Agent Visibility MCP server",
+				type: "application/mcp-server-card+json",
+				url: `${site.origin}${MCP_PATH}/server-card`,
+				representativeQueries: [
+					"Say hello to this site's MCP server.",
+					"List this site's AI-readable content resources.",
+					"Retrieve a resource by its slug.",
+				],
+			},
+		],
+	};
+}
+
+/** A public pre-connection description for the real Streamable HTTP MCP service. */
+export function renderMcpServerCard(ctx: RenderCtx): object {
+	const { site } = ctx;
+	return {
+		$schema:
+			"https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+		name: MCP_SERVER_NAME,
+		version: MCP_SERVER_VERSION,
+		title: "Agent Visibility MCP Server",
+		description: "Read-only tools for discovering this site's AI-readable content.",
+		websiteUrl: site.origin,
+		repository: {
+			url: "https://github.com/YDdhh/agent-visibility-template",
+			source: "github",
+		},
+		remotes: [
+			{
+				type: "streamable-http",
+				url: `${site.origin}${MCP_PATH}`,
 			},
 		],
 	};
