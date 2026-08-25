@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import { registerWebMcpTools } from "./webmcp";
 
 interface Surface {
 	id: string;
@@ -151,6 +152,10 @@ export default function App() {
 	const [resources, setResources] = useState<Resource[]>([]);
 	const [resourcesLoading, setResourcesLoading] = useState(true);
 	const [resourcesError, setResourcesError] = useState<string | null>(null);
+
+	useEffect(() => {
+		registerWebMcpTools();
+	}, []);
 
 	useEffect(() => {
 		async function loadResources() {
