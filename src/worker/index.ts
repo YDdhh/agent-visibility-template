@@ -20,6 +20,7 @@
  */
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { createMcpHandler } from "agents/mcp/server";
 import {
 	renderIndexJson,
 	renderLlmsFullTxt,
@@ -30,6 +31,7 @@ import {
 	renderApiCatalog,
 	renderAgentSkillsIndex,
 	renderArdCatalog,
+	renderMcpServerCard,
 	AGENT_VISIBILITY_SKILL,
 	AGENT_SKILL_PATH,
 	renderResourceJsonLd,
@@ -37,6 +39,8 @@ import {
 	renderRobotsTxt,
 	renderWebsiteJsonLd,
 } from "../enrichment/surfaces";
+import { MCP_PATH } from "../lib/mcp";
+import { createAgentVisibilityMcpServer } from "../mcp/server";
 import {
 	clearCache,
 	getResources,
@@ -97,6 +101,7 @@ function discoveryLinkHeader(site: { origin: string }): string {
 		`<${site.origin}/llms.txt>; rel="alternate"; type="text/plain"; title="LLM content index"`,
 		`<${site.origin}/sitemap.xml>; rel="sitemap"; type="application/xml"`,
 		`<${site.origin}/.well-known/agent-skills/index.json>; rel="agent-skills"; type="application/json"`,
+		`<${site.origin}${MCP_PATH}/server-card>; rel="service-desc"; type="application/mcp-server-card+json"`,
 	].join(", ");
 }
 
@@ -125,6 +130,7 @@ app.use("/.well-known/api-catalog", cors());
 app.use("/.well-known/openapi.json", cors());
 app.use("/.well-known/ai-catalog.json", cors());
 app.use("/.well-known/agent-skills/*", cors());
+app.use("/.well-known/mcp/*", cors());
 // NB: Hono's "*" wildcard does not match a literal ".md"/".jsonld" suffix, so
 // the per-page surfaces need the same regex matcher their routes use.
 app.use("/:file{.+\\.md}", cors());
@@ -133,6 +139,51 @@ app.use("/:file{.+\\.jsonld}", cors());
 // ---------------------------------------------------------------------------
 // Machine-readable surfaces
 // ---------------------------------------------------------------------------
+
+/** Public pre-connection metadata for the real Streamable HTTP MCP endpoint. */
+function mcpServerCardResponse(c: { env: Env; req: { url: string } }) {
+	const site = siteConfig(c.env, originOf(c.req.url));
+	return new Response(
+		JSON.stringify(renderMcpServerCard({ site, resources: [] })),
+		{
+			status: 200,
+			headers: {
+				"Content-Type": "application/mcp-server-card+json; charset=utf-8",
+				"Access-Control-Allow-Origin": "*",
+				"Access-Control-Allow-Methods": "GET",
+				"Access-Control-Allow-Headers": "Content-Type, If-None-Match",
+				"Access-Control-Expose-Headers": "ETag",
+				"Cache-Control": "public, max-age=3600",
+				...contentSignal(c),
+			},
+		},
+	);
+}
+
+app.get(`${MCP_PATH}/server-card`, (c) => mcpServerCardResponse(c));
+// Compatibility alias for early discovery tools that still probe this path.
+app.get("/.well-known/mcp/server-card.json", (c) => mcpServerCardResponse(c));
+
+app.all(MCP_PATH, (c) => {
+	const origin = originOf(c.req.url);
+	const handler = createMcpHandler(
+		() => createAgentVisibilityMcpServer(c.env, origin),
+		{
+			route: MCP_PATH,
+			// This endpoint is intentionally public and read-only; CORS enables
+			// browser-based MCP clients without exposing credentials or mutations.
+			corsOptions: {
+				origin: "*",
+				methods: "GET, POST, DELETE, OPTIONS",
+				headers:
+					"Content-Type, MCP-Protocol-Version, MCP-Session-Id, Last-Event-ID",
+				maxAge: 86400,
+			},
+			allowedOriginHostnames: "*",
+		},
+	);
+	return handler(c.req.raw, c.env, c.executionCtx);
+});
 
 // Preserve the bundled React UI for people, while agents that explicitly ask
 // for Markdown receive a compact, grounded representation of the homepage.
@@ -244,7 +295,8 @@ app.get(AGENT_SKILL_PATH, (c) => {
 
 app.get("/.well-known/ai-catalog.json", (c) => {
 	const site = siteConfig(c.env, originOf(c.req.url));
-	return c.json(renderArdCatalog({ site, resources: [] }), 200, {
+	return c.body(JSON.stringify(renderArdCatalog({ site, resources: [] })), 200, {
+		"Content-Type": "application/ai-catalog+json; charset=utf-8",
 		"Content-Signal": contentSignal(c)["Content-Signal"],
 	});
 });
@@ -314,6 +366,7 @@ app.get("/api/site", async (c) => {
 			{ id: "api-catalog", label: "API catalog", path: "/.well-known/api-catalog", kind: "json" },
 			{ id: "agent-skills", label: "Agent Skills", path: "/.well-known/agent-skills/index.json", kind: "json" },
 			{ id: "ard", label: "ARD manifest", path: "/.well-known/ai-catalog.json", kind: "json" },
+			{ id: "mcp-card", label: "MCP Server Card", path: `${MCP_PATH}/server-card`, kind: "json" },
 		],
 	});
 });
