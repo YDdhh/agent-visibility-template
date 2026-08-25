@@ -52,6 +52,17 @@ describe("Agent Visibility template", () => {
 		expect(text).toContain(".md)");
 	});
 
+	it("returns homepage Markdown when an agent explicitly requests it", async () => {
+		const res = await SELF.fetch(`${BASE}/`, {
+			headers: { accept: "text/markdown" },
+		});
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toContain("text/markdown");
+		expect(res.headers.get("vary")).toContain("Accept");
+		expect(res.headers.get("link")).toContain('rel="api-catalog"');
+		expect(await res.text()).toContain("## Agent resources");
+	});
+
 	it("serves /llms-full.txt with inlined page content", async () => {
 		const res = await SELF.fetch(`${BASE}/llms-full.txt`);
 		expect(res.status).toBe(200);
@@ -98,6 +109,41 @@ describe("Agent Visibility template", () => {
 		// Content-Signal must live inside robots.txt (the canonical location),
 		// not only in an HTTP header.
 		expect(text).toContain("Content-Signal: ai-input=yes");
+		expect(text).toContain("Sitemap: https://example.com/sitemap.xml");
+	});
+
+	it("serves a sitemap for the homepage and indexed Markdown pages", async () => {
+		const res = await SELF.fetch(`${BASE}/sitemap.xml`);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toContain("application/xml");
+		const text = await res.text();
+		expect(text).toContain("<urlset");
+		expect(text).toContain("https://example.com/getting-started.md");
+	});
+
+	it("publishes the public content API and agent discovery documents", async () => {
+		const apiCatalog = await SELF.fetch(`${BASE}/.well-known/api-catalog`);
+		expect(apiCatalog.status).toBe(200);
+		expect(apiCatalog.headers.get("content-type")).toContain("application/linkset+json");
+		expect((await apiCatalog.json() as { linkset: unknown[] }).linkset).toHaveLength(1);
+
+		const openApi = await SELF.fetch(`${BASE}/.well-known/openapi.json`);
+		expect(openApi.status).toBe(200);
+		expect((await openApi.json() as { openapi: string }).openapi).toBe("3.1.0");
+
+		const skills = await SELF.fetch(`${BASE}/.well-known/agent-skills/index.json`);
+		expect(skills.status).toBe(200);
+		const skillIndex = (await skills.json()) as { skills: Array<{ url: string; digest: string }> };
+		expect(skillIndex.skills[0]?.url).toContain("/SKILL.md");
+		expect(skillIndex.skills[0]?.digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+
+		const skill = await SELF.fetch(`${BASE}${skillIndex.skills[0]?.url}`);
+		expect(skill.status).toBe(200);
+		expect(skill.headers.get("content-type")).toContain("text/markdown");
+
+		const ard = await SELF.fetch(`${BASE}/.well-known/ai-catalog.json`);
+		expect(ard.status).toBe(200);
+		expect((await ard.json() as { entries: unknown[] }).entries.length).toBeGreaterThan(0);
 	});
 
 	it("sets CORS headers on the per-page Markdown surface", async () => {

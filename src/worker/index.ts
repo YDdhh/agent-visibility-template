@@ -24,6 +24,14 @@ import {
 	renderIndexJson,
 	renderLlmsFullTxt,
 	renderLlmsTxt,
+	renderHomeMarkdown,
+	renderSitemapXml,
+	renderOpenApiDocument,
+	renderApiCatalog,
+	renderAgentSkillsIndex,
+	renderArdCatalog,
+	AGENT_VISIBILITY_SKILL,
+	AGENT_SKILL_PATH,
 	renderResourceJsonLd,
 	renderResourceMd,
 	renderRobotsTxt,
@@ -83,11 +91,40 @@ function contentSignal(c: { env: Env }): Record<string, string> {
 	};
 }
 
+function discoveryLinkHeader(site: { origin: string }): string {
+	return [
+		`<${site.origin}/.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"`,
+		`<${site.origin}/llms.txt>; rel="alternate"; type="text/plain"; title="LLM content index"`,
+		`<${site.origin}/sitemap.xml>; rel="sitemap"; type="application/xml"`,
+		`<${site.origin}/.well-known/agent-skills/index.json>; rel="agent-skills"; type="application/json"`,
+	].join(", ");
+}
+
+function acceptsMarkdown(accept: string | undefined): boolean {
+	return accept?.toLowerCase().split(",").some((value) => value.trim().startsWith("text/markdown")) ?? false;
+}
+
+function appendVary(existing: string | null, value: string): string {
+	const entries = new Set(
+		(existing ?? "")
+			.split(",")
+			.map((entry) => entry.trim())
+			.filter(Boolean),
+	);
+	entries.add(value);
+	return [...entries].join(", ");
+}
+
 // CORS so agents can fetch the machine-readable surfaces from anywhere.
 app.use("/llms.txt", cors());
 app.use("/llms-full.txt", cors());
 app.use("/index.json", cors());
 app.use("/jsonld", cors());
+app.use("/sitemap.xml", cors());
+app.use("/.well-known/api-catalog", cors());
+app.use("/.well-known/openapi.json", cors());
+app.use("/.well-known/ai-catalog.json", cors());
+app.use("/.well-known/agent-skills/*", cors());
 // NB: Hono's "*" wildcard does not match a literal ".md"/".jsonld" suffix, so
 // the per-page surfaces need the same regex matcher their routes use.
 app.use("/:file{.+\\.md}", cors());
@@ -96,6 +133,34 @@ app.use("/:file{.+\\.jsonld}", cors());
 // ---------------------------------------------------------------------------
 // Machine-readable surfaces
 // ---------------------------------------------------------------------------
+
+// Preserve the bundled React UI for people, while agents that explicitly ask
+// for Markdown receive a compact, grounded representation of the homepage.
+app.get("/", async (c) => {
+	const site = siteConfig(c.env, originOf(c.req.url));
+	const resources = await getResources(c.env);
+	const commonHeaders = {
+		...contentSignal(c),
+		Link: discoveryLinkHeader(site),
+		Vary: "Accept",
+	};
+	if (acceptsMarkdown(c.req.header("accept"))) {
+		return c.text(renderHomeMarkdown({ site, resources }), 200, {
+			"Content-Type": "text/markdown; charset=utf-8",
+			...commonHeaders,
+		});
+	}
+
+	const assetResponse = await c.env.ASSETS.fetch(c.req.raw);
+	const headers = new Headers(assetResponse.headers);
+	for (const [name, value] of Object.entries(commonHeaders)) headers.set(name, value);
+	headers.set("Vary", appendVary(assetResponse.headers.get("Vary"), "Accept"));
+	return new Response(assetResponse.body, {
+		status: assetResponse.status,
+		statusText: assetResponse.statusText,
+		headers,
+	});
+});
 
 app.get("/llms.txt", async (c) => {
 	const site = siteConfig(c.env, originOf(c.req.url));
@@ -137,6 +202,51 @@ app.get("/robots.txt", async (c) => {
 			...contentSignal(c),
 		},
 	);
+});
+
+app.get("/sitemap.xml", async (c) => {
+	const site = siteConfig(c.env, originOf(c.req.url));
+	const resources = await getResources(c.env);
+	return c.text(renderSitemapXml({ site, resources }), 200, {
+		"Content-Type": "application/xml; charset=utf-8",
+		...contentSignal(c),
+	});
+});
+
+app.get("/.well-known/openapi.json", (c) => {
+	const site = siteConfig(c.env, originOf(c.req.url));
+	return c.json(renderOpenApiDocument({ site, resources: [] }), 200, {
+		"Content-Signal": contentSignal(c)["Content-Signal"],
+	});
+});
+
+app.get("/.well-known/api-catalog", (c) => {
+	const site = siteConfig(c.env, originOf(c.req.url));
+	return c.body(JSON.stringify(renderApiCatalog({ site, resources: [] })), 200, {
+		"Content-Type": "application/linkset+json; profile=\"https://www.rfc-editor.org/info/rfc9727\"",
+		"Content-Signal": contentSignal(c)["Content-Signal"],
+	});
+});
+
+app.get("/.well-known/agent-skills/index.json", async (c) => {
+	const site = siteConfig(c.env, originOf(c.req.url));
+	return c.json(await renderAgentSkillsIndex({ site, resources: [] }), 200, {
+		"Content-Signal": contentSignal(c)["Content-Signal"],
+	});
+});
+
+app.get(AGENT_SKILL_PATH, (c) => {
+	return c.text(AGENT_VISIBILITY_SKILL, 200, {
+		"Content-Type": "text/markdown; charset=utf-8",
+		...contentSignal(c),
+	});
+});
+
+app.get("/.well-known/ai-catalog.json", (c) => {
+	const site = siteConfig(c.env, originOf(c.req.url));
+	return c.json(renderArdCatalog({ site, resources: [] }), 200, {
+		"Content-Signal": contentSignal(c)["Content-Signal"],
+	});
 });
 
 app.get("/jsonld", async (c) => {
@@ -182,8 +292,9 @@ app.get("/api/site", async (c) => {
 	const site = siteConfig(c.env, originOf(c.req.url));
 	return c.json({
 		site,
-		webBotAuthEnabled: c.env.ENABLE_WEB_BOT_AUTH === "true",
+		webBotAuthEnabled: String(c.env.ENABLE_WEB_BOT_AUTH) === "true",
 		surfaces: [
+			{ id: "home-markdown", label: "Homepage Markdown", path: "/", kind: "text" },
 			{ id: "llms-txt", label: "llms.txt", path: "/llms.txt", kind: "text" },
 			{
 				id: "llms-full",
@@ -198,7 +309,11 @@ app.get("/api/site", async (c) => {
 				kind: "json",
 			},
 			{ id: "robots", label: "robots.txt", path: "/robots.txt", kind: "text" },
+			{ id: "sitemap", label: "sitemap.xml", path: "/sitemap.xml", kind: "text" },
 			{ id: "jsonld", label: "JSON-LD", path: "/jsonld", kind: "json" },
+			{ id: "api-catalog", label: "API catalog", path: "/.well-known/api-catalog", kind: "json" },
+			{ id: "agent-skills", label: "Agent Skills", path: "/.well-known/agent-skills/index.json", kind: "json" },
+			{ id: "ard", label: "ARD manifest", path: "/.well-known/ai-catalog.json", kind: "json" },
 		],
 	});
 });
@@ -287,12 +402,12 @@ app.post("/api/refresh", async (c) => {
 // ---------------------------------------------------------------------------
 
 app.get("/.well-known/web-bot-auth/directory", (c) => {
-	if (c.env.ENABLE_WEB_BOT_AUTH !== "true") return c.notFound();
+	if (String(c.env.ENABLE_WEB_BOT_AUTH) !== "true") return c.notFound();
 	return c.json(directoryDocument(SAMPLE_AGENT_KEYS));
 });
 
 app.all("/api/identity", async (c) => {
-	if (c.env.ENABLE_WEB_BOT_AUTH !== "true") {
+	if (String(c.env.ENABLE_WEB_BOT_AUTH) !== "true") {
 		return c.json({ error: "Web Bot Auth is disabled" }, 404);
 	}
 	const result = await verifyAgentIdentity(c.req.raw, SAMPLE_AGENT_KEYS);

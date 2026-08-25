@@ -9,9 +9,15 @@
 	},
 	"assets": {
 		"directory": "./dist/client",
+		"binding": "ASSETS",
 		"not_found_handling": "single-page-application",
 		"run_worker_first": [
+			"/",
 			"/.well-known/web-bot-auth/*",
+			"/.well-known/api-catalog",
+			"/.well-known/openapi.json",
+			"/.well-known/ai-catalog.json",
+			"/.well-known/agent-skills/*",
 			"/api",
 			"/api/*",
 			"/index.json",
@@ -19,6 +25,7 @@
 			"/llms-full.txt",
 			"/llms.txt",
 			"/robots.txt",
+			"/sitemap.xml",
 			"/*.jsonld",
 			"/*.md"
 		]

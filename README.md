@@ -11,7 +11,10 @@ Search is shifting from links to answers. To show up in those answers, your cont
 - **`/llms.txt`** and **`/llms-full.txt`** — the [llms.txt](https://llmstxt.org) index conventions
 - **`/index.json`** — a typed JSON index for structured agents
 - **`/<slug>.md`** — clean per-page Markdown, ideal for grounding and citation
-- **`/robots.txt`** — explicit directives that welcome named AI crawlers
+- **Homepage Markdown negotiation** — `Accept: text/markdown` returns a compact, grounded homepage while browsers keep the React UI
+- **`/robots.txt`** and **`/sitemap.xml`** — explicit crawl directives plus a canonical content map
+- **Link headers** — advertise the API catalog, llms.txt, sitemap, and Agent Skills index from the homepage
+- **Well-known discovery documents** — API Catalog (RFC 9727), OpenAPI, Agent Skills, and an ARD capability manifest
 - **`Content-Signal` headers** — declare how agents may use your content
 - **JSON-LD** (`/jsonld`, `/<slug>.jsonld`) — schema.org structured data for classic and AI crawlers
 - **Web Bot Auth** _(optional)_ — verify the identity of signed agents (RFC 9421, Ed25519)
@@ -85,6 +88,9 @@ agent surfaces:
 - `https://<your-worker>/index.json`
 - `https://<your-worker>/getting-started.md` (any sample slug)
 - `https://<your-worker>/robots.txt`
+- `https://<your-worker>/sitemap.xml`
+- `https://<your-worker>/.well-known/api-catalog`
+- `https://<your-worker>/.well-known/agent-skills/index.json`
 
 The first request to a surface enriches the content with Workers AI and caches
 it; subsequent requests are served from KV. Replace the sample content (see
@@ -137,6 +143,12 @@ at 100 KB, and the store holds up to 100 resources. Call `POST /api/refresh`
 | GET    | `/:slug.jsonld`                       | Per-page schema.org JSON-LD                                  |
 | GET    | `/jsonld`                             | Site-level schema.org JSON-LD                                |
 | GET    | `/robots.txt`                         | AI-bot directives                                            |
+| GET    | `/sitemap.xml`                        | XML sitemap of the Worker homepage and Markdown pages         |
+| GET    | `/.well-known/api-catalog`            | RFC 9727 API Catalog (`application/linkset+json`)             |
+| GET    | `/.well-known/openapi.json`           | OpenAPI description for the public content API                |
+| GET    | `/.well-known/agent-skills/index.json`| Agent Skills Discovery index                                  |
+| GET    | `/.well-known/agent-skills/agent-visibility/SKILL.md` | Instructions for consuming published content        |
+| GET    | `/.well-known/ai-catalog.json`        | ARD capability manifest                                       |
 | GET    | `/api/site`                           | Site config + surface list (used by the UI)                  |
 | GET    | `/api/resources`                      | Enriched resources as JSON                                   |
 | GET    | `/api/resources/:slug`                | A single enriched resource                                   |

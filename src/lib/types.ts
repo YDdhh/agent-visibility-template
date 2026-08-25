@@ -57,6 +57,8 @@ export interface SiteConfig {
 export interface Env {
 	AI: Ai;
 	VISIBILITY_CACHE: KVNamespace;
+	/** Static asset binding used to preserve the browser UI at `/`. */
+	ASSETS: Fetcher;
 	SITE_NAME: string;
 	SITE_DESCRIPTION: string;
 	AI_MODEL: string;
