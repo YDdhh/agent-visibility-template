@@ -3,6 +3,7 @@
 	"name": "agent-visibility-template",
 	"main": "./src/worker/index.ts",
 	"compatibility_date": "2025-10-08",
+	"compatibility_flags": ["nodejs_compat"],
 	"upload_source_maps": true,
 	"observability": {
 		"enabled": true
@@ -13,7 +14,10 @@
 		"not_found_handling": "single-page-application",
 		"run_worker_first": [
 			"/",
+			"/mcp",
+			"/mcp/*",
 			"/.well-known/web-bot-auth/*",
+			"/.well-known/mcp/*",
 			"/.well-known/api-catalog",
 			"/.well-known/openapi.json",
 			"/.well-known/ai-catalog.json",
